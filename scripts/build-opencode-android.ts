@@ -23,7 +23,7 @@ if (!fs.existsSync(ANDROID_BUN)) {
 
 process.chdir(OPENCODE_DIR)
 
-const VERSION = process.env.OPENCODE_VERSION || "1.17.10"
+const VERSION = process.env.OPENCODE_VERSION || "1.18.31"
 const CHANNEL = process.env.OPENCODE_CHANNEL || "latest"
 
 console.log(`Building OpenCode v${VERSION} (channel: ${CHANNEL}) for Android aarch64`)

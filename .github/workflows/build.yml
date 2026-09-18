@@ -9,7 +9,7 @@ on:
       opencode_version:
         description: 'OpenCode version to build'
         required: false
-        default: '1.18.30'
+        default: '1.18.31'
       create_prerelease:
         description: 'Create a GitHub pre-release with the built artifacts'
         required: false
@@ -22,7 +22,7 @@ on:
 
 env:
   BUN_VERSION: "1.2.13"
-  OPENCODE_VERSION: "1.18.30"
+  OPENCODE_VERSION: "1.18.31"
   ANDROID_API: "24"
   ANDROID_NDK_VERSION: "28.1.13356709"
   WEBKIT_COMMIT: "017930ebf915121f8f593bef61cbbca82d78132d"

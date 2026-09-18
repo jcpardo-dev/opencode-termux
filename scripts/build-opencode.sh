@@ -55,7 +55,7 @@ if [ ! -f "$ANDROID_BUN" ]; then
 fi
 
 # Use the ARM64 libopentui.so built by scripts/build-opentui.sh.
-# build-opentui.sh checks out opentui v0.4.2 (the version OpenCode depends on)
+# build-opentui.sh checks out opentui v0.4.5 (the version OpenCode depends on)
 # and cross-compiles it for aarch64-linux-android, producing:
 #   $OPENTUI_SRC/packages/core/src/lib/aarch64-linux-android/libopentui.so
 echo ">>> Locating ARM64 libopentui.so from opentui build..."
