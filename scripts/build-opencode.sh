@@ -260,26 +260,70 @@ done < <(find "$OPENCODE_SRC" -path '*/node_modules/@opentui/core/index-*.js' -t
 echo ">>> Patching OpenCode source for Android/Termux..."
 
 # 1. Keep cache/tmp paths inside the Termux home directory.
-for candidate in \
-    "$OPENCODE_SRC/packages/util/src/global-roots.ts" \
-    "$OPENCODE_SRC/packages/core/src/global.ts" \
-    "$OPENCODE_PKG/src/global.ts"
-do
-    if [ -f "$candidate" ]; then
-        if grep -q 'tmp: path\.join(os\.tmpdir(), app)' "$candidate"; then
-            perl -i -pe 's/tmp: path\.join\(os\.tmpdir\(\), app\)/tmp: process.env.TMPDIR ? path.join(process.env.TMPDIR, app) : path.join(os.tmpdir(), app)/' "$candidate"
-            echo "    Patched $candidate (Termux tmp path)"
-        elif ! grep -q 'home.startsWith("/data/data/com.termux/")' "$candidate"; then
-            perl -i -pe '
-                s/^const app = "opencode"$/const app = "opencode"\nconst home = process.env.OPENCODE_TEST_HOME ?? os.homedir()\nconst isAndroid = Boolean(\n  process.env.TERMUX_VERSION || process.env.ANDROID_ROOT || home.startsWith("\/data\/data\/com.termux\/"),\n)/;
-                s/^const cache = path\.join\(xdgCache!, app\)$/const cache = isAndroid ? path.join(home, ".cache", app) : path.join(xdgCache!, app)/;
-                s/^const tmp = path\.join\(os\.tmpdir\(\), app\)$/const tmp = isAndroid ? path.join(cache, "tmp") : path.join(os.tmpdir(), app)/;
-                s/return process\.env\.OPENCODE_TEST_HOME \?\? os\.homedir\(\)/return home/;
-            ' "$candidate"
-            echo "    Patched $candidate (Termux cache/tmp paths)"
-        fi
-    fi
-done
+# 1. Keep cache/tmp paths inside the Termux home directory and polyfill process.env from /proc/self/environ.
+GLOBAL_ROOTS="$OPENCODE_SRC/packages/util/src/global-roots.ts"
+if [ -f "$GLOBAL_ROOTS" ] && ! grep -q "proc/self/environ" "$GLOBAL_ROOTS"; then
+    python3 - "$GLOBAL_ROOTS" <<'PY'
+import sys
+from pathlib import Path
+
+p = Path(sys.argv[1])
+text = p.read_text()
+prelude = """import fs from "node:fs"
+try {
+  const raw = fs.readFileSync("/proc/self/environ", "utf-8")
+  for (const entry of raw.split("\\0")) {
+    const eq = entry.indexOf("=")
+    if (eq > 0) {
+      const k = entry.slice(0, eq)
+      const v = entry.slice(eq + 1)
+      if (process.env[k] === undefined) process.env[k] = v
+      if (typeof Bun !== "undefined" && Bun.env && Bun.env[k] === undefined) Bun.env[k] = v
+    }
+  }
+} catch {}
+"""
+text = prelude + text
+text = text.replace(
+    'const home = os.homedir()',
+    'const home = process.env.HOME || (process.env.TERMUX_VERSION || process.env.ANDROID_ROOT ? "/data/data/com.termux/files/home" : os.homedir())',
+)
+text = text.replace(
+    'tmp: path.join(os.tmpdir(), app)',
+    'tmp: path.join(process.env.TMPDIR || process.env.TEMP || process.env.TMP || (process.env.TERMUX_VERSION || process.env.ANDROID_ROOT ? "/data/data/com.termux/files/usr/tmp" : os.tmpdir()), app)',
+)
+p.write_text(text)
+PY
+    echo "    Patched $GLOBAL_ROOTS (Termux environment and paths)"
+fi
+
+CLI_INDEX="$OPENCODE_PKG/src/index.ts"
+if [ -f "$CLI_INDEX" ] && ! grep -q "proc/self/environ" "$CLI_INDEX"; then
+    python3 - "$CLI_INDEX" <<'PY'
+import sys
+from pathlib import Path
+
+p = Path(sys.argv[1])
+text = p.read_text()
+prelude = """// Polyfill process.env from /proc/self/environ on Android
+try {
+  const fs = require("node:fs")
+  const raw = fs.readFileSync("/proc/self/environ", "utf-8")
+  for (const entry of raw.split("\\0")) {
+    const eq = entry.indexOf("=")
+    if (eq > 0) {
+      const k = entry.slice(0, eq)
+      const v = entry.slice(eq + 1)
+      if (process.env[k] === undefined) process.env[k] = v
+      if (typeof Bun !== "undefined" && Bun.env && Bun.env[k] === undefined) Bun.env[k] = v
+    }
+  }
+} catch {}
+"""
+p.write_text(prelude + text)
+PY
+    echo "    Patched $CLI_INDEX (proc/self/environ prelude)"
+fi
 
 # 2. Disable the file watcher on Android/Termux.
 for candidate in \

@@ -15,12 +15,17 @@ set -e
 dir="$(cd "$(dirname "$0")" && pwd)"
 export ANDROID_ROOT="${ANDROID_ROOT:-/system}"
 export TERMUX_VERSION="${TERMUX_VERSION:-opencode-termux}"
-export TMPDIR="${OPENCODE_TMPDIR:-${HOME:-/data/data/com.termux/files/home}/tmp}"
+export HOME="${HOME:-/data/data/com.termux/files/home}"
+export PREFIX="${PREFIX:-/data/data/com.termux/files/usr}"
+export TMPDIR="${OPENCODE_TMPDIR:-${TMPDIR:-${PREFIX}/tmp}}"
 export TEMP="$TMPDIR"
 export TMP="$TMPDIR"
+export XDG_DATA_HOME="${XDG_DATA_HOME:-$HOME/.local/share}"
+export XDG_CACHE_HOME="${XDG_CACHE_HOME:-$HOME/.cache}"
+export XDG_CONFIG_HOME="${XDG_CONFIG_HOME:-$HOME/.config}"
+export XDG_STATE_HOME="${XDG_STATE_HOME:-$HOME/.local/state}"
 export OPENCODE_DISABLE_TUI_AUDIO="${OPENCODE_DISABLE_TUI_AUDIO:-1}"
 export BUN_FEATURE_FLAG_DISABLE_EPOLL_PWAIT2="${BUN_FEATURE_FLAG_DISABLE_EPOLL_PWAIT2:-1}"
-export JSC_useGigacage="${JSC_useGigacage:-false}"
 mkdir -p "$TMPDIR" 2>/dev/null || true
 
 # Locate the native libraries we ship alongside the wrapper.
