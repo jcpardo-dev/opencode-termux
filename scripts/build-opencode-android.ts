@@ -126,7 +126,7 @@ const pluginRuntimePlugin: import("bun").BunPlugin = {
 const parcelWatcherPlugin: import("bun").BunPlugin = {
   name: "parcel-watcher-binding",
   setup(build) {
-    build.onLoad({ filter: /filesystem[/\\]watcher-binding\.ts$/ }, () => ({
+    build.onLoad({ filter: /filesystem[/\\]watcher-binding\.(ts|js)$/ }, () => ({
       contents: "export default () => undefined",
       loader: "js",
     }))
@@ -137,21 +137,10 @@ const parcelWatcherPlugin: import("bun").BunPlugin = {
 const opencodePtyPlugin: import("bun").BunPlugin = {
   name: "opencode-pty-binary",
   setup(build) {
-    build.onLoad({ filter: /persistent-pty[/\\]pty-binding\.ts$/ }, () => ({
+    build.onLoad({ filter: /persistent-pty[/\\]pty-binding\.(ts|js)$/ }, () => ({
       loader: "js",
       contents: "export default undefined",
     }))
-  },
-}
-
-// Simulation graph plugin for OpenCode 2.0
-const simulationGraphPlugin: import("bun").BunPlugin = {
-  name: "opencode-simulation-graph",
-  setup(build) {
-    build.onLoad(
-      { filter: /packages[/\\]simulation[/\\]src[/\\](frontend[/\\](simulation|server)|control-server)\.ts$/ },
-      () => ({ loader: "js", contents: "export {}" }),
-    )
   },
 }
 
@@ -173,7 +162,6 @@ const result = await Bun.build({
     pluginRuntimePlugin,
     parcelWatcherPlugin,
     opencodePtyPlugin,
-    simulationGraphPlugin,
   ],
   external: ["node-gyp"],
   format: "esm",
