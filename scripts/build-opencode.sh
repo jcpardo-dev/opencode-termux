@@ -104,6 +104,9 @@ if [ -z "$ARM64_LIBOPENTUI" ] || [ ! -f "$ARM64_LIBOPENTUI" ]; then
     exit 1
 fi
 echo "    Using ARM64 libopentui.so ($(du -h "$ARM64_LIBOPENTUI" | cut -f1))"
+LIBOPENTUI_PERSISTENT="${WORK_DIR}/libopentui.so.persistent"
+cp "$ARM64_LIBOPENTUI" "$LIBOPENTUI_PERSISTENT"
+ARM64_LIBOPENTUI="$LIBOPENTUI_PERSISTENT"
 
 is_android_shared_object() {
     local file="$1"

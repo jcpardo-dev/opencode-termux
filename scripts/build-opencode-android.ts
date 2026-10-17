@@ -62,7 +62,6 @@ const workerPath = "./src/cli/tui/worker.ts"
 console.log(`Parser worker: ${parserWorkerResolved || "none"}`)
 console.log(`OpenCode worker: ${workerPath}`)
 
-await $`rm -rf ${OUTPUT_DIR}`
 await $`mkdir -p ${OUTPUT_DIR}`
 
 console.log("\n=== Step 3: Bundling OpenCode ===")
