@@ -195,10 +195,6 @@ audio_bodies = {
     _ = frame_count;
     _ = channels;
     return native_audio.Status.err_invalid;""",
-    "export fn audioEnableTap(engine_handle: NativeHandle, enabled: bool, capacity_frames: u32) i32": """    _ = engine_handle;
-    _ = enabled;
-    _ = capacity_frames;
-    return native_audio.Status.err_invalid;""",
     "export fn audioEnableTap(engine_handle: NativeHandle, enabled: u8, capacity_frames: u32) i32": """    _ = engine_handle;
     _ = enabled;
     _ = capacity_frames;
@@ -260,22 +256,21 @@ new_target = '''addYogaDependencies(b, module);
 
     if (target.result.os.tag == .linux and (target.result.abi == .android or target.result.abi == .androideabi)) {
         module.link_libcpp = false;
-        if (std.posix.getenv("ANDROID_NDK_HOME")) |ndk_home| {
-            const ndk_lib_dir = std.fmt.allocPrint(
-                b.allocator,
-                "{s}/toolchains/llvm/prebuilt/linux-x86_64/sysroot/usr/lib/aarch64-linux-android/24",
-                .{ndk_home},
-            ) catch unreachable;
-            module.addLibraryPath(.{ .cwd_relative = ndk_lib_dir });
-            const ndk_cxx_dir = std.fmt.allocPrint(
-                b.allocator,
-                "{s}/toolchains/llvm/prebuilt/linux-x86_64/sysroot/usr/lib/aarch64-linux-android",
-                .{ndk_home},
-            ) catch unreachable;
-            module.addLibraryPath(.{ .cwd_relative = ndk_cxx_dir });
-            module.linkSystemLibrary("c", .{});
-            module.linkSystemLibrary("c++_shared", .{});
-        }
+        const ndk_home = if (b.graph.environ_map.get("ANDROID_NDK_HOME")) |p| p else "/opt/android-ndk";
+        const ndk_lib_dir = std.fmt.allocPrint(
+            b.allocator,
+            "{s}/toolchains/llvm/prebuilt/linux-x86_64/sysroot/usr/lib/aarch64-linux-android/24",
+            .{ndk_home},
+        ) catch unreachable;
+        module.addLibraryPath(.{ .cwd_relative = ndk_lib_dir });
+        const ndk_cxx_dir = std.fmt.allocPrint(
+            b.allocator,
+            "{s}/toolchains/llvm/prebuilt/linux-x86_64/sysroot/usr/lib/aarch64-linux-android",
+            .{ndk_home},
+        ) catch unreachable;
+        module.addLibraryPath(.{ .cwd_relative = ndk_cxx_dir });
+        module.linkSystemLibrary("c", .{});
+        module.linkSystemLibrary("c++_shared", .{});
     }'''
 if old_target in bz:
     bz = bz.replace(old_target, new_target, 1)
