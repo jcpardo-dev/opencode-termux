@@ -178,9 +178,11 @@ jobs:
           BUN_PATCH_HASH=$(sha256sum patches/bun/android-support.patch | cut -c1-16)
           WEBKIT_PATCH_HASH=$(sha256sum patches/webkit/android-support.patch | cut -c1-16)
           ZIG_PATCH_HASH=$(sha256sum patches/zig/posix-android-sigaction.patch | cut -c1-16)
+          OPENTUI_HASH=$(sha256sum scripts/build-opentui.sh | cut -c1-16)
           echo "bun_patch_hash=$BUN_PATCH_HASH" >> $GITHUB_OUTPUT
           echo "webkit_patch_hash=$WEBKIT_PATCH_HASH" >> $GITHUB_OUTPUT
           echo "zig_patch_hash=$ZIG_PATCH_HASH" >> $GITHUB_OUTPUT
+          echo "opentui_hash=$OPENTUI_HASH" >> $GITHUB_OUTPUT
 
       - name: Restore ICU build
         id: cache-icu
@@ -204,6 +206,13 @@ jobs:
             ${{ env.WORK_DIR }}/bun-build/bun
             ${{ env.WORK_DIR }}/bun-build/bun-profile
           key: bun-android-v2-${{ env.BUN_VERSION }}-${{ steps.hashes.outputs.bun_patch_hash }}-${{ steps.hashes.outputs.zig_patch_hash }}
+
+      - name: Restore OpenTUI build
+        id: cache-opentui
+        uses: actions/cache/restore@v4
+        with:
+          path: ${{ env.WORK_DIR }}/dist/libopentui.so
+          key: opentui-android-${{ steps.hashes.outputs.opentui_hash }}
 
       # =============================================
       # Clone and patch sources
@@ -299,6 +308,13 @@ jobs:
         run: |
           source scripts/env.sh
           ./scripts/build-opentui.sh
+
+      - name: Save OpenTUI build cache
+        uses: actions/cache/save@v4
+        if: steps.cache-opentui.outputs.cache-hit != 'true'
+        with:
+          path: ${{ env.WORK_DIR }}/dist/libopentui.so
+          key: opentui-android-${{ steps.hashes.outputs.opentui_hash }}
 
       # =============================================
       # Build OpenCode standalone binary

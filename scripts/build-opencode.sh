@@ -37,6 +37,8 @@ else
         git fetch --tags origin "v${OPENCODE_VERSION}" 2>/dev/null || true
         git checkout --force "v${OPENCODE_VERSION}"
     fi
+fi
+
 if [ -d "$OPENCODE_SRC/packages/cli" ]; then
     OPENCODE_PKG="$OPENCODE_SRC/packages/cli"
 else
@@ -170,11 +172,11 @@ done
 # the correct package on Android/Termux arm64. The host build only installs
 # core-linux-x64, so the arm64 optional dependency is missing. Without this,
 # zig.ts throws "opentui is not supported on the current platform: linux-arm64".
-CORE_LINUX_ARM64_DIR="$OPENCODE_SRC/node_modules/@opentui/core-linux-arm64"
-if [ ! -d "$CORE_LINUX_ARM64_DIR" ]; then
-    echo ">>> Creating @opentui/core-linux-arm64 package..."
-    mkdir -p "$CORE_LINUX_ARM64_DIR"
-    cat > "$CORE_LINUX_ARM64_DIR/package.json" <<EOF
+for nm_dir in "$OPENCODE_SRC/node_modules" "$OPENCODE_PKG/node_modules"; do
+    if [ -d "$nm_dir" ]; then
+        CORE_LINUX_ARM64_DIR="$nm_dir/@opentui/core-linux-arm64"
+        mkdir -p "$CORE_LINUX_ARM64_DIR"
+        cat > "$CORE_LINUX_ARM64_DIR/package.json" <<EOF
 {
   "name": "@opentui/core-linux-arm64",
   "version": "$OPENTUI_CORE_VERSION",
@@ -182,26 +184,13 @@ if [ ! -d "$CORE_LINUX_ARM64_DIR" ]; then
   "license": "MIT"
 }
 EOF
-    cp "$ARM64_LIBOPENTUI" "$CORE_LINUX_ARM64_DIR/libopentui.so"
-    cat > "$CORE_LINUX_ARM64_DIR/index.js" <<'EOF'
+        cp "$ARM64_LIBOPENTUI" "$CORE_LINUX_ARM64_DIR/libopentui.so"
+        cat > "$CORE_LINUX_ARM64_DIR/index.js" <<'EOF'
 module.exports = process.env["OPENTUI_LIB_PATH"] || "/data/data/com.termux/files/usr/lib/libopentui.so";
 EOF
-    echo "    Created $CORE_LINUX_ARM64_DIR"
-else
-    echo ">>> @opentui/core-linux-arm64 already exists, updating .so and version..."
-    cat > "$CORE_LINUX_ARM64_DIR/package.json" <<EOF
-{
-  "name": "@opentui/core-linux-arm64",
-  "version": "$OPENTUI_CORE_VERSION",
-  "main": "index.js",
-  "license": "MIT"
-}
-EOF
-    cp "$ARM64_LIBOPENTUI" "$CORE_LINUX_ARM64_DIR/libopentui.so"
-    cat > "$CORE_LINUX_ARM64_DIR/index.js" <<'EOF'
-module.exports = process.env["OPENTUI_LIB_PATH"] || "/data/data/com.termux/files/usr/lib/libopentui.so";
-EOF
-fi
+        echo "    Ensured $CORE_LINUX_ARM64_DIR"
+    fi
+done
 
 # Patch @opentui/core's generated FFI wrapper. Bun validates numeric arguments
 # against the declared FFI type before Zig sees them; Android terminal/layout

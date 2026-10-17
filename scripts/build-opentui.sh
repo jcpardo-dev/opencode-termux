@@ -34,6 +34,11 @@ OPENTUI_COMMIT="6f0efd3330978d696b42db3d7d95d2042008312b"
 
 echo "=== Building libopentui.so for Android aarch64 ==="
 
+if [ -f "$DIST_DIR/libopentui.so" ] && [ "${OPENTUI_FORCE_REBUILD:-0}" != "1" ]; then
+    echo ">>> $DIST_DIR/libopentui.so already exists, skipping build."
+    exit 0
+fi
+
 # Clone opentui if needed
 if [ ! -d "$OPENTUI_SRC/.git" ]; then
     echo ">>> Cloning opentui (commit $OPENTUI_COMMIT)..."

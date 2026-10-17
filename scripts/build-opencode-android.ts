@@ -101,7 +101,8 @@ const appAssetsPlugin: import("bun").BunPlugin = {
     }))
     build.onLoad({ filter: /^opencode-app-assets$/, namespace: "opencode" }, () => ({
       loader: "js",
-      contents: "export default () => new Uint8Array(0)",
+      // Valid AppArchive header with 0 entries (length: 2, JSON: "{}")
+      contents: "export default () => new Uint8Array([2, 0, 0, 0, 0x7b, 0x7d])",
     }))
   },
 }
