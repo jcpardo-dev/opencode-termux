@@ -12,7 +12,21 @@ set -euo pipefail
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 source "$SCRIPT_DIR/env.sh"
 
-ZIG_BIN="${ZIG_BIN:-zig}"
+# OpenTUI 0.5.17 requires Zig 0.16.0 (specified in packages/native/build.zig.zon).
+# Bun requires Zig 0.15.2. Use Zig 0.16.0 for OpenTUI.
+if [ -n "${OPENTUI_ZIG_BIN:-}" ] && [ -x "$OPENTUI_ZIG_BIN" ]; then
+    ZIG_BIN="$OPENTUI_ZIG_BIN"
+elif [ -x "${WORK_DIR:-}/zig-0.16.0/zig" ]; then
+    ZIG_BIN="${WORK_DIR}/zig-0.16.0/zig"
+else
+    ZIG_016_DIR="${WORK_DIR:-/tmp}/zig-0.16.0"
+    if [ ! -x "$ZIG_016_DIR/zig" ]; then
+        echo ">>> Installing Zig 0.16.0 for OpenTUI..."
+        mkdir -p "$ZIG_016_DIR"
+        curl -sSL "https://ziglang.org/download/0.16.0/zig-x86_64-linux-0.16.0.tar.xz" | tar -xJ -C "$ZIG_016_DIR" --strip-components=1
+    fi
+    ZIG_BIN="$ZIG_016_DIR/zig"
+fi
 
 # Pin opentui to the exact version that OpenCode depends on.
 # This commit corresponds to @opentui/core v0.5.17 (dereferenced tag).
@@ -64,6 +78,16 @@ fi
 if [ ! -f "$OPENTUI_ZIG_DIR/build.zig" ]; then
     echo "ERROR: build.zig not found at $OPENTUI_ZIG_DIR"
     exit 1
+fi
+
+# Prepare Zig dependencies archive (uucode, ghostty, yoga)
+if [ -f "$OPENTUI_ZIG_DIR/scripts/prepare-zig-deps.sh" ]; then
+    echo ">>> Preparing Zig dependencies (prepare-zig-deps.sh)..."
+    sh "$OPENTUI_ZIG_DIR/scripts/prepare-zig-deps.sh"
+elif [ -f "$OPENTUI_ZIG_DIR/src/vendor/zig-deps.tar.gz" ] && [ ! -d "$OPENTUI_ZIG_DIR/zig-deps" ]; then
+    echo ">>> Extracting zig-deps.tar.gz..."
+    mkdir -p "$OPENTUI_ZIG_DIR/zig-deps"
+    tar -xzf "$OPENTUI_ZIG_DIR/src/vendor/zig-deps.tar.gz" -C "$OPENTUI_ZIG_DIR/zig-deps"
 fi
 
 if [ "${OPENTUI_SKIP_ANDROID_RUNTIME_PATCH:-}" != "1" ]; then
@@ -175,6 +199,10 @@ audio_bodies = {
     _ = enabled;
     _ = capacity_frames;
     return native_audio.Status.err_invalid;""",
+    "export fn audioEnableTap(engine_handle: NativeHandle, enabled: u8, capacity_frames: u32) i32": """    _ = engine_handle;
+    _ = enabled;
+    _ = capacity_frames;
+    return native_audio.Status.err_invalid;""",
     "export fn audioReadTap(engine_handle: NativeHandle, out_ptr: ?[*]f32, frame_count: u32, channels: u8, out_frames_read: ?*u32) i32": """    _ = engine_handle;
     _ = out_ptr;
     _ = frame_count;
@@ -205,12 +233,54 @@ yoga_text = yoga_text.replace(
 )
 yoga_zig.write_text(yoga_text)
 
-# Disable checkZigVersion in build.zig if present, and ensure libc linking.
+# Patch build.zig for Android compatibility:
+# 1. Disable pthread/dl on Android (provided by libc.so)
+# 2. Link Android NDK libc and libc++_shared
 build_zig = zig_dir / "build.zig"
 bz = build_zig.read_text()
-if "checkZigVersion();" in bz:
-    bz = bz.replace("checkZigVersion();", "// checkZigVersion();")
-    print(">>> build.zig: disabled checkZigVersion")
+
+old_audio = '''        .linux => {
+            module.linkSystemLibrary("dl", .{});
+            module.linkSystemLibrary("pthread", .{});
+            module.linkSystemLibrary("m", .{});
+        },'''
+new_audio = '''        .linux => {
+            if (target.result.abi != .android and target.result.abi != .androideabi) {
+                module.linkSystemLibrary("dl", .{});
+                module.linkSystemLibrary("pthread", .{});
+            }
+            module.linkSystemLibrary("m", .{});
+        },'''
+if old_audio in bz:
+    bz = bz.replace(old_audio, new_audio)
+    print(">>> build.zig: patched addNativeAudioDependencies (skipped pthread/dl on Android)")
+
+old_target = 'addYogaDependencies(b, module);'
+new_target = '''addYogaDependencies(b, module);
+
+    if (target.result.os.tag == .linux and (target.result.abi == .android or target.result.abi == .androideabi)) {
+        module.link_libcpp = false;
+        if (std.posix.getenv("ANDROID_NDK_HOME")) |ndk_home| {
+            const ndk_lib_dir = std.fmt.allocPrint(
+                b.allocator,
+                "{s}/toolchains/llvm/prebuilt/linux-x86_64/sysroot/usr/lib/aarch64-linux-android/24",
+                .{ndk_home},
+            ) catch unreachable;
+            module.addLibraryPath(.{ .cwd_relative = ndk_lib_dir });
+            const ndk_cxx_dir = std.fmt.allocPrint(
+                b.allocator,
+                "{s}/toolchains/llvm/prebuilt/linux-x86_64/sysroot/usr/lib/aarch64-linux-android",
+                .{ndk_home},
+            ) catch unreachable;
+            module.addLibraryPath(.{ .cwd_relative = ndk_cxx_dir });
+            module.linkSystemLibrary("c", .{});
+            module.linkSystemLibrary("c++_shared", .{});
+        }
+    }'''
+if old_target in bz:
+    bz = bz.replace(old_target, new_target, 1)
+    print(">>> build.zig: added Android NDK libc and libc++_shared linking in buildTarget")
+
 if ".link_libc = true" not in bz and "module.link_libc = true" not in bz:
     old = ".optimize = optimize,\n    });"
     new = ".optimize = optimize,\n        .link_libc = true,\n    });"

@@ -132,6 +132,21 @@ jobs:
           echo "ZIG_BIN=$ZIG_DIR/zig" >> $GITHUB_ENV
           echo "$ZIG_DIR" >> $GITHUB_PATH
 
+      - name: Install Zig 0.16.0 (for OpenTUI)
+        run: |
+          ZIG_016_DIR="$WORK_DIR/zig-0.16.0"
+          if [ -x "$ZIG_016_DIR/zig" ]; then
+            echo "Zig 0.16.0 already installed at $ZIG_016_DIR"
+          else
+            echo "Downloading Zig 0.16.0..."
+            cd /tmp
+            wget -q "https://ziglang.org/download/0.16.0/zig-x86_64-linux-0.16.0.tar.xz" -O zig016.tar.xz
+            mkdir -p "$ZIG_016_DIR"
+            tar xf zig016.tar.xz -C "$ZIG_016_DIR" --strip-components=1
+            rm zig016.tar.xz
+          fi
+          echo "OPENTUI_ZIG_BIN=$ZIG_016_DIR/zig" >> $GITHUB_ENV
+
       - name: Install Bun (host, pinned for module graph compatibility)
         run: |
           # CRITICAL: The host Bun version must produce a module graph format
@@ -167,31 +182,28 @@ jobs:
           echo "webkit_patch_hash=$WEBKIT_PATCH_HASH" >> $GITHUB_OUTPUT
           echo "zig_patch_hash=$ZIG_PATCH_HASH" >> $GITHUB_OUTPUT
 
-      - name: Cache ICU build
+      - name: Restore ICU build
         id: cache-icu
-        uses: actions/cache@v4
+        uses: actions/cache/restore@v4
         with:
           path: ${{ env.WORK_DIR }}/deps-android/prefix
           key: icu-android-${{ env.ICU_VERSION }}-${{ env.ANDROID_API }}
-          save-always: true
 
-      - name: Cache WebKit build
+      - name: Restore WebKit build
         id: cache-webkit
-        uses: actions/cache@v4
+        uses: actions/cache/restore@v4
         with:
           path: ${{ env.WORK_DIR }}/webkit-android
           key: webkit-android-${{ env.WEBKIT_COMMIT }}-${{ steps.hashes.outputs.webkit_patch_hash }}
-          save-always: true
 
-      - name: Cache Bun binary
+      - name: Restore Bun binary
         id: cache-bun
-        uses: actions/cache@v4
+        uses: actions/cache/restore@v4
         with:
           path: |
             ${{ env.WORK_DIR }}/bun-build/bun
             ${{ env.WORK_DIR }}/bun-build/bun-profile
           key: bun-android-v2-${{ env.BUN_VERSION }}-${{ steps.hashes.outputs.bun_patch_hash }}-${{ steps.hashes.outputs.zig_patch_hash }}
-          save-always: true
 
       # =============================================
       # Clone and patch sources
@@ -211,6 +223,13 @@ jobs:
           source scripts/env.sh
           ./scripts/build-icu.sh
 
+      - name: Save ICU build cache
+        uses: actions/cache/save@v4
+        if: steps.cache-icu.outputs.cache-hit != 'true'
+        with:
+          path: ${{ env.WORK_DIR }}/deps-android/prefix
+          key: icu-android-${{ env.ICU_VERSION }}-${{ env.ANDROID_API }}
+
       # =============================================
       # Build WebKit/JSC
       # =============================================
@@ -219,6 +238,13 @@ jobs:
         run: |
           source scripts/env.sh
           ./scripts/build-webkit.sh
+
+      - name: Save WebKit build cache
+        uses: actions/cache/save@v4
+        if: steps.cache-webkit.outputs.cache-hit != 'true'
+        with:
+          path: ${{ env.WORK_DIR }}/webkit-android
+          key: webkit-android-${{ env.WEBKIT_COMMIT }}-${{ steps.hashes.outputs.webkit_patch_hash }}
 
       # =============================================
       # Build TinyCC (libtcc.a)
@@ -256,6 +282,15 @@ jobs:
           else
             echo "bun-profile: not present — debug variant will be skipped"
           fi
+
+      - name: Save Bun binary cache
+        uses: actions/cache/save@v4
+        if: steps.cache-bun.outputs.cache-hit != 'true'
+        with:
+          path: |
+            ${{ env.WORK_DIR }}/bun-build/bun
+            ${{ env.WORK_DIR }}/bun-build/bun-profile
+          key: bun-android-v2-${{ env.BUN_VERSION }}-${{ steps.hashes.outputs.bun_patch_hash }}-${{ steps.hashes.outputs.zig_patch_hash }}
 
       # =============================================
       # Build libopentui.so
