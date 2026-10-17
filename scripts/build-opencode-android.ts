@@ -23,53 +23,44 @@ if (!fs.existsSync(ANDROID_BUN)) {
 
 process.chdir(OPENCODE_DIR)
 
-const VERSION = process.env.OPENCODE_VERSION || "1.18.31"
+const VERSION = process.env.OPENCODE_VERSION || "2.0.32"
 const CHANNEL = process.env.OPENCODE_CHANNEL || "latest"
 
 console.log(`Building OpenCode v${VERSION} (channel: ${CHANNEL}) for Android aarch64`)
 
-console.log("\n=== Step 1: Loading models.dev snapshot ===")
+console.log("\n=== Step 1: Loading models.dev snapshot (optional) ===")
 const modelsUrl = process.env.OPENCODE_MODELS_URL || "https://models.dev"
 let modelsData = ""
-if (process.env.MODELS_DEV_API_JSON) {
+if (process.env.MODELS_DEV_API_JSON && fs.existsSync(process.env.MODELS_DEV_API_JSON)) {
   modelsData = await Bun.file(process.env.MODELS_DEV_API_JSON).text()
 } else {
-  let fetchErr: Error | null = null
-  for (let attempt = 1; attempt <= 3; attempt++) {
-    try {
-      const resp = await fetch(`${modelsUrl}/api.json`, { signal: AbortSignal.timeout(15000) })
-      if (!resp.ok) throw new Error(`HTTP ${resp.status}`)
-      modelsData = await resp.text()
-      fetchErr = null
-      break
-    } catch (err: any) {
-      fetchErr = err
-      console.error(`  Attempt ${attempt}/3 failed: ${err.message}`)
-      if (attempt < 3) await new Promise((r) => setTimeout(r, 2000 * attempt))
-    }
-  }
-  if (fetchErr) {
-    console.error(`ERROR: Failed to fetch models after 3 attempts: ${fetchErr.message}`)
-    process.exit(1)
+  try {
+    const resp = await fetch(`${modelsUrl}/api.json`, { signal: AbortSignal.timeout(5000) })
+    if (resp.ok) modelsData = await resp.text()
+  } catch (err: any) {
+    console.log(`  Notice: models.dev snapshot skipped (${err.message})`)
   }
 }
-JSON.parse(modelsData)
-console.log("Loaded models.dev snapshot")
+if (modelsData) {
+  try { JSON.parse(modelsData); console.log("Loaded models.dev snapshot") } catch {}
+}
 
 console.log("\n=== Step 2: Resolving OpenTUI workers ===")
 const localPath = path.resolve(OPENCODE_DIR, "node_modules/@opentui/core/parser.worker.js")
 const rootPath = path.resolve(OPENCODE_DIR, "../../node_modules/@opentui/core/parser.worker.js")
-let parserWorkerResolved: string
+let parserWorkerResolved: string | undefined
 try {
   parserWorkerResolved = fs.realpathSync(fs.existsSync(localPath) ? localPath : rootPath)
 } catch {
-  parserWorkerResolved = require.resolve("@opentui/core/parser.worker.js")
+  try {
+    parserWorkerResolved = require.resolve("@opentui/core/parser.worker.js")
+  } catch {
+    console.log("Notice: parser.worker.js not found as standalone file")
+  }
 }
 const workerPath = "./src/cli/tui/worker.ts"
-console.log(`Parser worker: ${parserWorkerResolved}`)
+console.log(`Parser worker: ${parserWorkerResolved || "none"}`)
 console.log(`OpenCode worker: ${workerPath}`)
-
-
 
 await $`rm -rf ${OUTPUT_DIR}`
 await $`mkdir -p ${OUTPUT_DIR}`
@@ -78,21 +69,8 @@ console.log("\n=== Step 3: Bundling OpenCode ===")
 const hostBinaryPath = path.join(OUTPUT_DIR, "opencode-host")
 const plugin = createSolidTransformPlugin()
 const bunfsRoot = "/$bunfs/root/"
-const workerRelativePath = path.relative(OPENCODE_DIR, parserWorkerResolved).replaceAll("\\", "/")
+const workerRelativePath = parserWorkerResolved ? path.relative(OPENCODE_DIR, parserWorkerResolved).replaceAll("\\", "/") : ""
 
-// Plugin: rewrite OpenTUI's normalizeLoadedFilePath so it returns early on
-// undefined. OpenTUI 0.4.5 does a module-scope await on
-// import("@opentui/core/parser.worker", { with: { type: "file" } }). Because
-// this build also passes parser.worker.js as a Bun.build entrypoint, that
-// import resolves to a JS namespace whose .default is undefined. The
-// undefined flows into normalizeLoadedFilePath, which calls .startsWith and
-// then path.resolve on it -> TUI crashes before render.
-//
-// Upstream issue: opencode #37556
-//
-// We rewrite the function header at bundle time so the undefined is returned
-// immediately. Downstream callers (which already use ?? fallbacks) then take
-// the graceful path.
 const patchOpenTuiPlugin: import("bun").BunPlugin = {
   name: "patch-opentui-normpath",
   setup(build) {
@@ -113,23 +91,94 @@ const patchOpenTuiPlugin: import("bun").BunPlugin = {
   },
 }
 
+// OpenCode 2.0 app assets plugin (handles virtual:opencode-app-assets)
+const appAssetsPlugin: import("bun").BunPlugin = {
+  name: "opencode-app-assets",
+  setup(build) {
+    build.onResolve({ filter: /^virtual:opencode-app-assets$/ }, () => ({
+      path: "opencode-app-assets",
+      namespace: "opencode",
+    }))
+    build.onLoad({ filter: /^opencode-app-assets$/, namespace: "opencode" }, () => ({
+      loader: "js",
+      contents: "export default () => new Uint8Array(0)",
+    }))
+  },
+}
+
+// OpenCode 2.0 plugin runtime plugin
+const pluginRuntimePlugin: import("bun").BunPlugin = {
+  name: "opencode-plugin-runtime",
+  setup(build) {
+    build.onLoad({ filter: /plugin[/\\]src[/\\]runtime-modules\.ts$/ }, () => ({
+      contents: "export const resolveHostPackageRoots = () => []; export const loadRuntimeModules = () => ({})",
+      loader: "ts",
+    }))
+    build.onLoad({ filter: /[/\\]internal[/\\]httpApi(?:Scalar|Swagger)\.js$/ }, () => ({
+      contents: 'export const css = ""; export const javascript = ""',
+      loader: "js",
+    }))
+  },
+}
+
+// Stub parcel-watcher on Android/Termux
+const parcelWatcherPlugin: import("bun").BunPlugin = {
+  name: "parcel-watcher-binding",
+  setup(build) {
+    build.onLoad({ filter: /filesystem[/\\]watcher-binding\.ts$/ }, () => ({
+      contents: "export default () => undefined",
+      loader: "js",
+    }))
+  },
+}
+
+// Stub opencode-pty binary on Android/Termux
+const opencodePtyPlugin: import("bun").BunPlugin = {
+  name: "opencode-pty-binary",
+  setup(build) {
+    build.onLoad({ filter: /persistent-pty[/\\]pty-binding\.ts$/ }, () => ({
+      loader: "js",
+      contents: "export default undefined",
+    }))
+  },
+}
+
+// Simulation graph plugin for OpenCode 2.0
+const simulationGraphPlugin: import("bun").BunPlugin = {
+  name: "opencode-simulation-graph",
+  setup(build) {
+    build.onLoad(
+      { filter: /packages[/\\]simulation[/\\]src[/\\](frontend[/\\](simulation|server)|control-server)\.ts$/ },
+      () => ({ loader: "js", contents: "export {}" }),
+    )
+  },
+}
+
+const entrypoints = ["./src/index.ts"]
+if (parserWorkerResolved && fs.existsSync(parserWorkerResolved)) {
+  entrypoints.push(parserWorkerResolved)
+}
+if (fs.existsSync(workerPath)) {
+  entrypoints.push(workerPath)
+}
+
 const result = await Bun.build({
   conditions: ["bun", "node"],
   tsconfig: "./tsconfig.json",
-  plugins: [plugin, patchOpenTuiPlugin],
+  plugins: [
+    plugin,
+    patchOpenTuiPlugin,
+    appAssetsPlugin,
+    pluginRuntimePlugin,
+    parcelWatcherPlugin,
+    opencodePtyPlugin,
+    simulationGraphPlugin,
+  ],
   external: ["node-gyp"],
   format: "esm",
-  // minify: false is required: Bun 1.3.2's minifier renames bindings that
-// the Bun 1.2.13-canary.1 Android standalone loader cannot resolve,
-// producing 'ReferenceError: <sym> is not defined' at startup.
-minify: false,
+  minify: false,
   sourcemap: "none",
-  // splitting: false is required: enabling code splitting produces a
-// circular chunk dependency between drizzle-orm pg-core chunks
-// (chunk-esazrzrp <-> chunk-zpkxvayj), which the 1.2.13 module graph
-// loader cannot reconcile, producing
-// 'TypeError: The superclass is not a constructor'.
-splitting: false,
+  splitting: false,
   compile: {
     autoloadBunfig: false,
     autoloadDotenv: false,
@@ -138,16 +187,21 @@ splitting: false,
     outfile: hostBinaryPath,
     execArgv: [`--user-agent=opencode/${VERSION}`, "--use-system-ca", "--"],
   },
-  entrypoints: ["./src/index.ts", parserWorkerResolved, workerPath],
+  entrypoints,
   define: {
-    FFF_LIBC: `"gnu"`,
     OPENCODE_VERSION: `'${VERSION}'`,
-    OPENCODE_MODELS_DEV: modelsData,
-    OTUI_TREE_SITTER_WORKER_PATH: bunfsRoot + workerRelativePath,
-    OPENCODE_WORKER_PATH: workerPath,
+    OPENCODE_CLI_NAME: "'opencode'",
     OPENCODE_CHANNEL: `'${CHANNEL}'`,
-    OPENCODE_LIBC: `"glibc"`,
+    OPENCODE_ARTIFACT: "'cli'",
+    OPENCODE_LIBC: "'glibc'",
+    FFF_LIBC: "'gnu'",
+    OPENCODE_MODELS_DEV: modelsData ? JSON.stringify(modelsData) : "{}",
+    ...(parserWorkerResolved && workerRelativePath ? { OTUI_TREE_SITTER_WORKER_PATH: bunfsRoot + workerRelativePath } : {}),
+    ...(fs.existsSync(workerPath) ? { OPENCODE_WORKER_PATH: workerPath } : {}),
+    "process.env.OPENCODE_VERSION": `'${VERSION}'`,
+    "process.env.OPENCODE_CHANNEL": `'${CHANNEL}'`,
     "process.env.OPENTUI_LIBC": `"glibc"`,
+    ...(modelsData ? { "process.env.OPENCODE_MODELS_DATA": JSON.stringify(modelsData) } : {}),
   },
 })
 

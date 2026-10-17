@@ -115,7 +115,13 @@ check_android_shared_object "$ARM64_LIBOPENTUI" "libopentui.so"
 check_needed_library "$ARM64_LIBOPENTUI" "libopentui.so" "libc.so"
 
 # Locate bun-pty's ARM64 PTY library (shipped with the npm package)
-OPENCODE_PKG="${OPENCODE_PKG:-$OPENCODE_SRC/packages/opencode}"
+if [ -z "${OPENCODE_PKG:-}" ]; then
+    if [ -d "$OPENCODE_SRC/packages/cli" ]; then
+        OPENCODE_PKG="$OPENCODE_SRC/packages/cli"
+    else
+        OPENCODE_PKG="$OPENCODE_SRC/packages/opencode"
+    fi
+fi
 RUST_PTY_ARM64=""
 for candidate in \
     "$DIST_DIR/librust_pty_arm64.so" \
@@ -206,9 +212,10 @@ echo ">>> Creating ZIP package..."
 ZIP_NAME="opencode-${OPENCODE_VERSION}-android-aarch64.zip"
 cp "$OPENCODE_BINARY" "$PKG_DIR/opencode.bin"
 cp "$WRAPPER_SCRIPT"  "$PKG_DIR/opencode"
-chmod 755 "$PKG_DIR/opencode" "$PKG_DIR/opencode.bin"
+cp "$WRAPPER_SCRIPT"  "$PKG_DIR/opencode2"
+chmod 755 "$PKG_DIR/opencode" "$PKG_DIR/opencode2" "$PKG_DIR/opencode.bin"
 cd "$PKG_DIR"
-ZIP_FILES="opencode opencode.bin libtagfix.so libc++_shared.so libopentui.so"
+ZIP_FILES="opencode opencode2 opencode.bin libtagfix.so libc++_shared.so libopentui.so"
 if [ -f "$PKG_DIR/librust_pty_arm64.so" ]; then
     ZIP_FILES="$ZIP_FILES librust_pty_arm64.so"
 fi
@@ -234,6 +241,7 @@ PACMAN_USR="$PACMAN_STAGING/data/data/com.termux/files/usr"
 mkdir -p "$PACMAN_USR/bin" "$PACMAN_USR/libexec/opencode" "$PACMAN_USR/lib"
 
 cp "$WRAPPER_SCRIPT" "$PACMAN_USR/bin/opencode"
+ln -sf opencode "$PACMAN_USR/bin/opencode2"
 chmod 755 "$PACMAN_USR/bin/opencode"
 
 cp "$OPENCODE_BINARY" "$PACMAN_USR/libexec/opencode/opencode.bin"
@@ -284,6 +292,7 @@ mkdir -p "$DEB_USR/bin" "$DEB_USR/libexec/opencode" "$DEB_USR/lib"
 mkdir -p "$DEB_STAGING/DEBIAN"
 
 cp "$WRAPPER_SCRIPT" "$DEB_USR/bin/opencode"
+ln -sf opencode "$DEB_USR/bin/opencode2"
 chmod 755 "$DEB_USR/bin/opencode"
 
 cp "$OPENCODE_BINARY" "$DEB_USR/libexec/opencode/opencode.bin"

@@ -37,9 +37,11 @@ else
         git fetch --tags origin "v${OPENCODE_VERSION}" 2>/dev/null || true
         git checkout --force "v${OPENCODE_VERSION}"
     fi
+if [ -d "$OPENCODE_SRC/packages/cli" ]; then
+    OPENCODE_PKG="$OPENCODE_SRC/packages/cli"
+else
+    OPENCODE_PKG="$OPENCODE_SRC/packages/opencode"
 fi
-
-OPENCODE_PKG="$OPENCODE_SRC/packages/opencode"
 
 # Install OpenCode dependencies
 echo ">>> Installing OpenCode dependencies..."
@@ -54,15 +56,10 @@ if [ ! -f "$ANDROID_BUN" ]; then
     exit 1
 fi
 
-# Use the ARM64 libopentui.so built by scripts/build-opentui.sh.
-# build-opentui.sh checks out opentui v0.4.5 (the version OpenCode depends on)
-# and cross-compiles it for aarch64-linux-android, producing:
-#   $OPENTUI_SRC/packages/core/src/lib/aarch64-linux-android/libopentui.so
 echo ">>> Locating ARM64 libopentui.so from opentui build..."
 
 # Determine the @opentui/core version OpenCode depends on for the synthesized
-# core-linux-arm64 package metadata. The package may be hoisted to the workspace
-# root or kept inside packages/opencode/node_modules.
+# core-linux-arm64 package metadata.
 OPENTUI_CORE_PKG_JSON=""
 for candidate in \
     "$OPENCODE_PKG/node_modules/@opentui/core/package.json" \
@@ -83,8 +80,23 @@ fi
 OPENTUI_CORE_VERSION=$(jq -r '.version' "$OPENTUI_CORE_PKG_JSON")
 echo "    @opentui/core version: $OPENTUI_CORE_VERSION"
 
-ARM64_LIBOPENTUI="$OPENTUI_SRC/packages/core/src/lib/aarch64-linux-android/libopentui.so"
-if [ ! -f "$ARM64_LIBOPENTUI" ]; then
+ARM64_LIBOPENTUI=""
+for candidate in \
+    "$DIST_DIR/libopentui.so" \
+    "$WORK_DIR/dist/libopentui.so" \
+    "$OPENTUI_SRC/packages/core/src/lib/aarch64-linux-android/libopentui.so" \
+    "$OPENTUI_SRC/packages/native/lib/aarch64-linux-android/libopentui.so" \
+    "$OPENTUI_SRC/packages/lib/aarch64-linux-android/libopentui.so"
+do
+    if [ -f "$candidate" ]; then
+        ARM64_LIBOPENTUI="$candidate"
+        break
+    fi
+done
+if [ -z "$ARM64_LIBOPENTUI" ]; then
+    ARM64_LIBOPENTUI=$(find "$OPENTUI_SRC" -name "libopentui.so" -type f 2>/dev/null | head -1)
+fi
+if [ -z "$ARM64_LIBOPENTUI" ] || [ ! -f "$ARM64_LIBOPENTUI" ]; then
     echo "ERROR: ARM64 libopentui.so not found at $ARM64_LIBOPENTUI"
     echo "       Run scripts/build-opentui.sh first."
     exit 1
@@ -256,106 +268,99 @@ done < <(find "$OPENCODE_SRC" -path '*/node_modules/@opentui/core/index-*.js' -t
 echo ">>> Patching OpenCode source for Android/Termux..."
 
 # 1. Keep cache/tmp paths inside the Termux home directory.
-#    Bun resolves os.tmpdir() to /data/local/tmp on Android, which the Termux
-#    app sandbox cannot mkdir/read under normal app context.
-GLOBAL_TS="$OPENCODE_SRC/packages/core/src/global.ts"
-if [ -f "$GLOBAL_TS" ]; then
-    if ! grep -q 'home.startsWith("/data/data/com.termux/")' "$GLOBAL_TS"; then
-        perl -i -pe '
-            s/^const app = "opencode"$/const app = "opencode"\nconst home = process.env.OPENCODE_TEST_HOME ?? os.homedir()\nconst isAndroid = Boolean(\n  process.env.TERMUX_VERSION || process.env.ANDROID_ROOT || home.startsWith("\/data\/data\/com.termux\/"),\n)/;
-            s/^const cache = path\.join\(xdgCache!, app\)$/const cache = isAndroid ? path.join(home, ".cache", app) : path.join(xdgCache!, app)/;
-            s/^const tmp = path\.join\(os\.tmpdir\(\), app\)$/const tmp = isAndroid ? path.join(cache, "tmp") : path.join(os.tmpdir(), app)/;
-            s/return process\.env\.OPENCODE_TEST_HOME \?\? os\.homedir\(\)/return home/;
-        ' "$GLOBAL_TS"
-        echo "    Patched $GLOBAL_TS (Termux cache/tmp paths)"
-    else
-        echo "    $GLOBAL_TS already patched"
+for candidate in \
+    "$OPENCODE_SRC/packages/util/src/global-roots.ts" \
+    "$OPENCODE_SRC/packages/core/src/global.ts" \
+    "$OPENCODE_PKG/src/global.ts"
+do
+    if [ -f "$candidate" ]; then
+        if grep -q 'tmp: path\.join(os\.tmpdir(), app)' "$candidate"; then
+            perl -i -pe 's/tmp: path\.join\(os\.tmpdir\(\), app\)/tmp: process.env.TMPDIR ? path.join(process.env.TMPDIR, app) : path.join(os.tmpdir(), app)/' "$candidate"
+            echo "    Patched $candidate (Termux tmp path)"
+        elif ! grep -q 'home.startsWith("/data/data/com.termux/")' "$candidate"; then
+            perl -i -pe '
+                s/^const app = "opencode"$/const app = "opencode"\nconst home = process.env.OPENCODE_TEST_HOME ?? os.homedir()\nconst isAndroid = Boolean(\n  process.env.TERMUX_VERSION || process.env.ANDROID_ROOT || home.startsWith("\/data\/data\/com.termux\/"),\n)/;
+                s/^const cache = path\.join\(xdgCache!, app\)$/const cache = isAndroid ? path.join(home, ".cache", app) : path.join(xdgCache!, app)/;
+                s/^const tmp = path\.join\(os\.tmpdir\(\), app\)$/const tmp = isAndroid ? path.join(cache, "tmp") : path.join(os.tmpdir(), app)/;
+                s/return process\.env\.OPENCODE_TEST_HOME \?\? os\.homedir\(\)/return home/;
+            ' "$candidate"
+            echo "    Patched $candidate (Termux cache/tmp paths)"
+        fi
     fi
-fi
+done
 
 # 2. Disable the file watcher on Android/Termux.
-#    @parcel/watcher bundles the host (x86_64) native binding on a Linux build
-#    machine, which dlopen's on ARM64 Android and crashes. Until the ARM64
-#    binding is bundled, simply disable file watching.
-WATCHER_TS="$OPENCODE_SRC/packages/core/src/filesystem/watcher.ts"
-if [ ! -f "$WATCHER_TS" ]; then
-    WATCHER_TS="$OPENCODE_PKG/src/file/watcher.ts"
-fi
-if [ -f "$WATCHER_TS" ]; then
-    if ! grep -q "TERMUX_VERSION" "$WATCHER_TS"; then
+for candidate in \
+    "$OPENCODE_SRC/packages/core/src/filesystem/watcher.ts" \
+    "$OPENCODE_PKG/src/file/watcher.ts" \
+    "$OPENCODE_PKG/src/filesystem/watcher.ts"
+do
+    if [ -f "$candidate" ] && ! grep -q "TERMUX_VERSION" "$candidate"; then
         perl -i -pe '
             s/^(\s*const watcher = lazy\(\(\): typeof import\("(.*)"\) \| undefined => \{)/$1\n  if (process.env.TERMUX_VERSION \|\| process.env.ANDROID_ROOT) return/
-        ' "$WATCHER_TS"
-        echo "    Patched $WATCHER_TS (disable file watcher on Android)"
-    else
-        echo "    $WATCHER_TS already patched"
+        ' "$candidate"
+        echo "    Patched $candidate (disable file watcher on Android)"
     fi
-fi
+done
 
 # 3. Skip config-dir dependency installs on Android/Termux.
-#    In a bun build --compile binary, process.execPath is the compiled opencode
-#    binary, so `bun install` becomes `opencode.bin install`, which fails.
-#    User plugins are not supported in the Termux build anyway.
-CONFIG_TS="$OPENCODE_PKG/src/config/config.ts"
-if [ -f "$CONFIG_TS" ]; then
-    if ! grep -q "TERMUX_VERSION" "$CONFIG_TS"; then
+for candidate in \
+    "$OPENCODE_PKG/src/config/config.ts" \
+    "$OPENCODE_SRC/packages/cli/src/config/config.ts"
+do
+    if [ -f "$candidate" ] && ! grep -q "TERMUX_VERSION" "$candidate"; then
         perl -i -0777 -pe '
             s/(\n\s*)const dep = yield\* npmSvc\n\s+\.install\(dir,/$1if (process.env.TERMUX_VERSION || process.env.ANDROID_ROOT) {\n$1  yield* Effect.logInfo("skipping dependency install on Android Termux", { dir })\n$1} else {\n$1  const dep = yield* npmSvc\n$1    .install(dir,/;
             s/(\n\s*)deps\.push\(dep\)/$1deps.push(dep)\n$1}/;
-        ' "$CONFIG_TS"
-        echo "    Patched $CONFIG_TS (skip dependency install on Android)"
-    else
-        echo "    $CONFIG_TS already patched"
+        ' "$candidate"
+        echo "    Patched $candidate (skip dependency install on Android)"
     fi
-fi
+done
 
 # 4. Allow BunProc.which() to use a real bun binary if one is shipped.
-BUNPROC_TS="$OPENCODE_PKG/src/bun/index.ts"
-if [ -f "$BUNPROC_TS" ]; then
-    if ! grep -q "OPENCODE_BUN_PATH" "$BUNPROC_TS"; then
+for candidate in \
+    "$OPENCODE_PKG/src/bun/index.ts" \
+    "$OPENCODE_SRC/packages/util/src/process.ts"
+do
+    if [ -f "$candidate" ] && ! grep -q "OPENCODE_BUN_PATH" "$candidate"; then
         perl -i -0777 -pe '
             s/  export function which\(\) \{\n    return process\.execPath\n  \}/  export function which() {\n    return process.env.OPENCODE_BUN_PATH \|\| process.execPath\n  }/
-        ' "$BUNPROC_TS"
-        echo "    Patched $BUNPROC_TS (OPENCODE_BUN_PATH support)"
-    else
-        echo "    $BUNPROC_TS already patched"
+        ' "$candidate"
+        echo "    Patched $candidate (OPENCODE_BUN_PATH support)"
     fi
-fi
+done
 
 # 5. Disable TUI audio on the Android/Termux build.
-#    OpenTUI audio group handling panics on Android after a few prompt responses.
-AUDIO_TS="$OPENCODE_SRC/packages/tui/src/audio.ts"
-if [ -f "$AUDIO_TS" ]; then
-    if ! grep -q 'const disableAudio = true' "$AUDIO_TS"; then
+for candidate in \
+    "$OPENCODE_SRC/packages/tui/src/audio.ts" \
+    "$OPENCODE_PKG/src/audio.ts"
+do
+    if [ -f "$candidate" ] && ! grep -q 'const disableAudio = true' "$candidate"; then
         perl -i -0777 -pe '
             s/const disableAudio = process\.platform === "linux" \&\& process\.arch === "arm64"\n//;
             s/const disableAudio = process\.execPath\.includes\("\/data\/data\/com\.termux\/"\)\n//;
             s/const disableAudio = process\.env\["OPENCODE_DISABLE_TUI_AUDIO"\] === "1"\n//;
             s/(const sounds = new Map<string, Promise<AudioSound \| null>>\(\)\n)/$1const disableAudio = true\n/;
             s/function getAudio\(\) \{\n/function getAudio() {\n  if (disableAudio) {\n    audio = null\n    return null\n  }\n/;
-        ' "$AUDIO_TS"
-        echo "    Patched $AUDIO_TS (disable TUI audio on Android)"
-    else
-        echo "    $AUDIO_TS already patched"
+        ' "$candidate"
+        echo "    Patched $candidate (disable TUI audio on Android)"
     fi
-fi
+done
 
 # 6. Add diagnostic logging around createCliRenderer/render in the TUI app.
-#    The TUI hangs on Android with no output; we need to know whether
-#    createCliRenderer succeeds, throws, or never returns.
-APP_TSX="$OPENCODE_PKG/src/cli/cmd/tui/app.tsx"
-if [ -f "$APP_TSX" ]; then
-    if ! grep -q "OPENCODE_ANDROID_DIAG" "$APP_TSX"; then
+for candidate in \
+    "$OPENCODE_SRC/packages/tui/src/app.tsx" \
+    "$OPENCODE_PKG/src/cli/cmd/tui/app.tsx"
+do
+    if [ -f "$candidate" ] && ! grep -q "OPENCODE_ANDROID_DIAG" "$candidate"; then
         perl -i -0777 -pe '
             s/(const renderer = await createCliRenderer\(rendererConfig\(input\.config\)\))/console.error("[OPENCODE_ANDROID_DIAG] before createCliRenderer");\n    $1/;
             s/(await createCliRenderer\(rendererConfig\(input\.config\)\))/await createCliRenderer(rendererConfig(input.config)).then((r) => {\n      console.error("[OPENCODE_ANDROID_DIAG] createCliRenderer resolved");\n      return r;\n    }).catch((e) => {\n      console.error("[OPENCODE_ANDROID_DIAG] createCliRenderer rejected:", e);\n      throw e;\n    })/;
             s/(await render\(\(\) => \{)/console.error("[OPENCODE_ANDROID_DIAG] before render");\n    await render(() => {/;
-        ' "$APP_TSX"
-        echo "    Patched $APP_TSX (TUI diagnostics)"
-    else
-        echo "    $APP_TSX already patched"
+        ' "$candidate"
+        echo "    Patched $candidate (TUI diagnostics)"
     fi
-fi
+done
 
 # 5. Work around missing type-only AWS ESM exports that Bun 1.3.2 still tries
 #    to resolve while bundling. Newer Bun versions are better here, but 1.3.2

@@ -9,12 +9,12 @@ on:
       opencode_version:
         description: 'OpenCode version to build'
         required: false
-        default: '1.18.31'
+        default: '2.0.32'
       create_prerelease:
         description: 'Create a GitHub pre-release with the built artifacts'
         required: false
         type: boolean
-        default: false
+        default: true
       release_tag:
         description: 'Optional pre-release tag name (defaults to v0.2.0-<version>-android15-ci<run>)'
         required: false
@@ -22,7 +22,7 @@ on:
 
 env:
   BUN_VERSION: "1.2.13"
-  OPENCODE_VERSION: "1.18.31"
+  OPENCODE_VERSION: "2.0.32"
   ANDROID_API: "24"
   ANDROID_NDK_VERSION: "28.1.13356709"
   WEBKIT_COMMIT: "017930ebf915121f8f593bef61cbbca82d78132d"
@@ -394,7 +394,7 @@ jobs:
                during interactive prompt handling.
 
             ### Validation
-            - OpenCode ${{ env.OPENCODE_VERSION }} with OpenTUI 0.4.2.
+            - OpenCode ${{ env.OPENCODE_VERSION }} with OpenTUI 0.5.17.
             - Android 15 / SDK 35 interactive smoke: 5 prompts including `run ls`.
             - Scan TTY logs for `panic`, `Unexpected`, `Effect`, `Error`,
               `thread panic`, and `integer does not fit`.

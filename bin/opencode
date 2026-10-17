@@ -19,6 +19,8 @@ export TMPDIR="${OPENCODE_TMPDIR:-${HOME:-/data/data/com.termux/files/home}/tmp}
 export TEMP="$TMPDIR"
 export TMP="$TMPDIR"
 export OPENCODE_DISABLE_TUI_AUDIO="${OPENCODE_DISABLE_TUI_AUDIO:-1}"
+export BUN_FEATURE_FLAG_DISABLE_EPOLL_PWAIT2="${BUN_FEATURE_FLAG_DISABLE_EPOLL_PWAIT2:-1}"
+export JSC_useGigacage="${JSC_useGigacage:-false}"
 mkdir -p "$TMPDIR" 2>/dev/null || true
 
 # Locate the native libraries we ship alongside the wrapper.
@@ -47,6 +49,7 @@ if [ -n "$NATIVE_LIB_DIR" ]; then
     # Bun's /$bunfs/root/ virtual paths are not intercepted on Android, so load
     # opentui's renderer library and bun-pty's PTY library from the real filesystem.
     export OPENTUI_LIB_PATH="${NATIVE_LIB_DIR}/libopentui.so"
+    export OTUI_ASSET_ROOT="${NATIVE_LIB_DIR}"
     if [ -f "${NATIVE_LIB_DIR}/librust_pty_arm64.so" ]; then
         export BUN_PTY_LIB="${NATIVE_LIB_DIR}/librust_pty_arm64.so"
     fi
