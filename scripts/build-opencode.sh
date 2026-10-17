@@ -320,7 +320,11 @@ try {
   }
 } catch {}
 """
-p.write_text(prelude + text)
+if text.startswith("#!"):
+    first_nl = text.index("\n")
+    p.write_text(text[:first_nl + 1] + prelude + text[first_nl + 1:])
+else:
+    p.write_text(prelude + text)
 PY
     echo "    Patched $CLI_INDEX (proc/self/environ prelude)"
 fi
