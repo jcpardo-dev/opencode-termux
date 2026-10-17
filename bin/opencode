@@ -55,6 +55,14 @@ if [ -n "$NATIVE_LIB_DIR" ]; then
     # opentui's renderer library and bun-pty's PTY library from the real filesystem.
     export OPENTUI_LIB_PATH="${NATIVE_LIB_DIR}/libopentui.so"
     export OTUI_ASSET_ROOT="${NATIVE_LIB_DIR}"
+    # OpenTUI resolves assets relative to OTUI_ASSET_ROOT using package keys
+    # (@opentui/core-linux-x64/libopentui.so or @opentui/core-linux-arm64/libopentui.so).
+    # Ensure compatibility symlinks exist so dlopen succeeds across layouts.
+    if [ -f "${NATIVE_LIB_DIR}/libopentui.so" ]; then
+        mkdir -p "${NATIVE_LIB_DIR}/@opentui/core-linux-x64" "${NATIVE_LIB_DIR}/@opentui/core-linux-arm64" 2>/dev/null || true
+        ln -sf "${NATIVE_LIB_DIR}/libopentui.so" "${NATIVE_LIB_DIR}/@opentui/core-linux-x64/libopentui.so" 2>/dev/null || true
+        ln -sf "${NATIVE_LIB_DIR}/libopentui.so" "${NATIVE_LIB_DIR}/@opentui/core-linux-arm64/libopentui.so" 2>/dev/null || true
+    fi
     if [ -f "${NATIVE_LIB_DIR}/librust_pty_arm64.so" ]; then
         export BUN_PTY_LIB="${NATIVE_LIB_DIR}/librust_pty_arm64.so"
     fi

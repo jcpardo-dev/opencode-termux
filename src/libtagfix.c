@@ -23,6 +23,7 @@
  */
 
 #include <malloc.h>
+#include <pthread.h>
 
 /* mallopt() is present in bionic since API 21 but the NDK only exposes the
  * declaration in <malloc.h> when __ANDROID_API__ >= 26.  Add a fallback
@@ -44,3 +45,14 @@ __attribute__((constructor))
 static void disable_heap_tagging(void) {
     mallopt(M_BIONIC_SET_HEAP_TAGGING_LEVEL, M_HEAP_TAGGING_LEVEL_NONE);
 }
+
+/*
+ * Android Bionic libc does not implement pthread_tryjoin_np (a GNU extension).
+ * OpenTUI (@opentui/core) references this symbol when joining clipboard worker threads.
+ * Provide a compatibility wrapper so dlopen("libopentui.so") succeeds.
+ */
+__attribute__((visibility("default")))
+int pthread_tryjoin_np(pthread_t thread, void **retval) {
+    return pthread_join(thread, retval);
+}
+

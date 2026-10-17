@@ -67,6 +67,8 @@ check_tree() {
     [ -x "$prefix/libexec/opencode/opencode.bin" ] || die "missing executable opencode.bin in $root"
     [ -f "$prefix/lib/libtagfix.so" ] || die "missing libtagfix.so in $root"
     [ -f "$prefix/lib/libopentui.so" ] || die "missing libopentui.so in $root"
+    [ -e "$prefix/lib/@opentui/core-linux-x64/libopentui.so" ] || die "missing @opentui x64 link in $root"
+    [ -e "$prefix/lib/@opentui/core-linux-arm64/libopentui.so" ] || die "missing @opentui arm64 link in $root"
 
     check_wrapper "$prefix/bin/opencode"
     check_elf_aarch64 "$prefix/libexec/opencode/opencode.bin" "opencode.bin"
@@ -93,6 +95,8 @@ check_zip() {
     [ -f "$root/libtagfix.so" ] || die "zip missing libtagfix.so"
     [ -f "$root/libopentui.so" ] || die "zip missing libopentui.so"
     [ -f "$root/libc++_shared.so" ] || die "zip missing libc++_shared.so"
+    [ -e "$root/@opentui/core-linux-x64/libopentui.so" ] || die "zip missing @opentui x64 link"
+    [ -e "$root/@opentui/core-linux-arm64/libopentui.so" ] || die "zip missing @opentui arm64 link"
 
     check_wrapper "$root/opencode"
     check_elf_aarch64 "$root/opencode.bin" "zip opencode.bin"

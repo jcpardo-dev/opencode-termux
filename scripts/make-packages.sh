@@ -214,12 +214,15 @@ cp "$OPENCODE_BINARY" "$PKG_DIR/opencode.bin"
 cp "$WRAPPER_SCRIPT"  "$PKG_DIR/opencode"
 cp "$WRAPPER_SCRIPT"  "$PKG_DIR/opencode2"
 chmod 755 "$PKG_DIR/opencode" "$PKG_DIR/opencode2" "$PKG_DIR/opencode.bin"
+mkdir -p "$PKG_DIR/@opentui/core-linux-x64" "$PKG_DIR/@opentui/core-linux-arm64"
+ln -sf ../libopentui.so "$PKG_DIR/@opentui/core-linux-x64/libopentui.so"
+ln -sf ../libopentui.so "$PKG_DIR/@opentui/core-linux-arm64/libopentui.so"
 cd "$PKG_DIR"
-ZIP_FILES="opencode opencode2 opencode.bin libtagfix.so libc++_shared.so libopentui.so"
+ZIP_FILES="opencode opencode2 opencode.bin libtagfix.so libc++_shared.so libopentui.so @opentui"
 if [ -f "$PKG_DIR/librust_pty_arm64.so" ]; then
     ZIP_FILES="$ZIP_FILES librust_pty_arm64.so"
 fi
-zip -9 "$PKG_DIR/$ZIP_NAME" $ZIP_FILES
+zip -9 -y -r "$PKG_DIR/$ZIP_NAME" $ZIP_FILES
 
 # Add debug variant to the same ZIP if it was built
 if [ -f "$OPENCODE_DEBUG_BINARY" ] && [ -f "$DEBUG_WRAPPER_SCRIPT" ]; then
@@ -252,6 +255,9 @@ chmod 644 "$PACMAN_USR/lib/libtagfix.so"
 
 cp "$PKG_DIR/libopentui.so" "$PACMAN_USR/lib/libopentui.so"
 chmod 644 "$PACMAN_USR/lib/libopentui.so"
+mkdir -p "$PACMAN_USR/lib/@opentui/core-linux-x64" "$PACMAN_USR/lib/@opentui/core-linux-arm64"
+ln -sf ../../libopentui.so "$PACMAN_USR/lib/@opentui/core-linux-x64/libopentui.so"
+ln -sf ../../libopentui.so "$PACMAN_USR/lib/@opentui/core-linux-arm64/libopentui.so"
 
 if [ -f "$PKG_DIR/librust_pty_arm64.so" ]; then
     cp "$PKG_DIR/librust_pty_arm64.so" "$PACMAN_USR/lib/librust_pty_arm64.so"
@@ -303,6 +309,9 @@ chmod 644 "$DEB_USR/lib/libtagfix.so"
 
 cp "$PKG_DIR/libopentui.so" "$DEB_USR/lib/libopentui.so"
 chmod 644 "$DEB_USR/lib/libopentui.so"
+mkdir -p "$DEB_USR/lib/@opentui/core-linux-x64" "$DEB_USR/lib/@opentui/core-linux-arm64"
+ln -sf ../../libopentui.so "$DEB_USR/lib/@opentui/core-linux-x64/libopentui.so"
+ln -sf ../../libopentui.so "$DEB_USR/lib/@opentui/core-linux-arm64/libopentui.so"
 
 if [ -f "$PKG_DIR/librust_pty_arm64.so" ]; then
     cp "$PKG_DIR/librust_pty_arm64.so" "$DEB_USR/lib/librust_pty_arm64.so"
