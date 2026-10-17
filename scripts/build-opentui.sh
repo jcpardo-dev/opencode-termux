@@ -235,6 +235,46 @@ yoga_zig.write_text(yoga_text)
 build_zig = zig_dir / "build.zig"
 bz = build_zig.read_text()
 
+old_shim_flags = '''    const c_flags: []const []const u8 = switch (target.result.os.tag) {
+        .macos => blk: {
+            const flags = b.allocator.alloc([]const u8, 4) catch @panic("OOM");
+            flags[0] = "-std=c99";
+            flags[1] = "-DMA_NO_RUNTIME_LINKING";
+            flags[2] = "-isysroot";
+            flags[3] = macos_sdk_path.?;
+            break :blk flags;
+        },
+        else => &.{"-std=c99"},
+    };'''
+new_shim_flags = '''    const c_flags: []const []const u8 = switch (target.result.os.tag) {
+        .macos => blk: {
+            const flags = b.allocator.alloc([]const u8, 4) catch @panic("OOM");
+            flags[0] = "-std=c99";
+            flags[1] = "-DMA_NO_RUNTIME_LINKING";
+            flags[2] = "-isysroot";
+            flags[3] = macos_sdk_path.?;
+            break :blk flags;
+        },
+        .linux => blk: {
+            if (target.result.abi == .android or target.result.abi == .androideabi) {
+                const ndk_home = if (b.graph.environ_map.get("ANDROID_NDK_HOME")) |p| p else "/opt/android-ndk";
+                const sysroot = std.fmt.allocPrint(b.allocator, "{s}/toolchains/llvm/prebuilt/linux-x86_64/sysroot", .{ndk_home}) catch unreachable;
+                const inc1 = std.fmt.allocPrint(b.allocator, "-isystem{s}/usr/include", .{sysroot}) catch unreachable;
+                const inc2 = std.fmt.allocPrint(b.allocator, "-isystem{s}/usr/include/aarch64-linux-android", .{sysroot}) catch unreachable;
+                const flags = b.allocator.alloc([]const u8, 3) catch @panic("OOM");
+                flags[0] = "-std=c99";
+                flags[1] = inc1;
+                flags[2] = inc2;
+                break :blk flags;
+            }
+            break :blk &.{"-std=c99"};
+        },
+        else => &.{"-std=c99"},
+    };'''
+if old_shim_flags in bz:
+    bz = bz.replace(old_shim_flags, new_shim_flags, 1)
+    print(">>> build.zig: added NDK includes to miniaudio_shim c_flags")
+
 old_audio = '''        .linux => {
             module.linkSystemLibrary("dl", .{});
             module.linkSystemLibrary("pthread", .{});
@@ -259,7 +299,6 @@ new_translate = '''module.addImport("yoga", yoga_translate.createModule());
         const sysroot = std.fmt.allocPrint(b.allocator, "{s}/toolchains/llvm/prebuilt/linux-x86_64/sysroot", .{ndk_home}) catch unreachable;
         const inc1 = std.fmt.allocPrint(b.allocator, "{s}/usr/include", .{sysroot}) catch unreachable;
         const inc2 = std.fmt.allocPrint(b.allocator, "{s}/usr/include/aarch64-linux-android", .{sysroot}) catch unreachable;
-        const inc_cxx = std.fmt.allocPrint(b.allocator, "{s}/usr/include/c++/v1", .{sysroot}) catch unreachable;
         miniaudio_translate.defineCMacro("_Nullable", "");
         miniaudio_translate.defineCMacro("_Nonnull", "");
         miniaudio_translate.defineCMacro("_Null_unspecified", "");
@@ -270,20 +309,15 @@ new_translate = '''module.addImport("yoga", yoga_translate.createModule());
         miniaudio_translate.addSystemIncludePath(.{ .cwd_relative = inc2 });
         yoga_translate.addSystemIncludePath(.{ .cwd_relative = inc1 });
         yoga_translate.addSystemIncludePath(.{ .cwd_relative = inc2 });
-        yoga_translate.addSystemIncludePath(.{ .cwd_relative = inc_cxx });
-        module.addSystemIncludePath(.{ .cwd_relative = inc1 });
-        module.addSystemIncludePath(.{ .cwd_relative = inc2 });
-        module.addSystemIncludePath(.{ .cwd_relative = inc_cxx });
     }'''
 if old_translate in bz:
     bz = bz.replace(old_translate, new_translate, 1)
-    print(">>> build.zig: added Android NDK system include paths for translate-c and module")
+    print(">>> build.zig: added Android NDK system include paths for translate-c")
 
 old_target = 'addYogaDependencies(b, module);'
 new_target = '''addYogaDependencies(b, module);
 
     if (target.result.os.tag == .linux and (target.result.abi == .android or target.result.abi == .androideabi)) {
-        module.link_libcpp = false;
         const ndk_home = if (b.graph.environ_map.get("ANDROID_NDK_HOME")) |p| p else "/opt/android-ndk";
         const ndk_lib_dir = std.fmt.allocPrint(
             b.allocator,
@@ -291,18 +325,11 @@ new_target = '''addYogaDependencies(b, module);
             .{ndk_home},
         ) catch unreachable;
         module.addLibraryPath(.{ .cwd_relative = ndk_lib_dir });
-        const ndk_cxx_dir = std.fmt.allocPrint(
-            b.allocator,
-            "{s}/toolchains/llvm/prebuilt/linux-x86_64/sysroot/usr/lib/aarch64-linux-android",
-            .{ndk_home},
-        ) catch unreachable;
-        module.addLibraryPath(.{ .cwd_relative = ndk_cxx_dir });
         module.linkSystemLibrary("c", .{});
-        module.linkSystemLibrary("c++_shared", .{});
     }'''
 if old_target in bz:
     bz = bz.replace(old_target, new_target, 1)
-    print(">>> build.zig: added Android NDK libc and libc++_shared linking in buildTarget")
+    print(">>> build.zig: added Android NDK libc linking in buildTarget")
 
 if ".link_libc = true" not in bz and "module.link_libc = true" not in bz:
     old = ".optimize = optimize,\n    });"
