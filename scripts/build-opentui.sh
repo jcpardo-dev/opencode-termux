@@ -251,6 +251,28 @@ if old_audio in bz:
     bz = bz.replace(old_audio, new_audio)
     print(">>> build.zig: patched addNativeAudioDependencies (skipped pthread/dl on Android)")
 
+old_translate = 'module.addImport("yoga", yoga_translate.createModule());'
+new_translate = '''module.addImport("yoga", yoga_translate.createModule());
+
+    if (target.result.os.tag == .linux and (target.result.abi == .android or target.result.abi == .androideabi)) {
+        const ndk_home = if (b.graph.environ_map.get("ANDROID_NDK_HOME")) |p| p else "/opt/android-ndk";
+        const sysroot = std.fmt.allocPrint(b.allocator, "{s}/toolchains/llvm/prebuilt/linux-x86_64/sysroot", .{ndk_home}) catch unreachable;
+        const inc1 = std.fmt.allocPrint(b.allocator, "{s}/usr/include", .{sysroot}) catch unreachable;
+        const inc2 = std.fmt.allocPrint(b.allocator, "{s}/usr/include/aarch64-linux-android", .{sysroot}) catch unreachable;
+        const inc_cxx = std.fmt.allocPrint(b.allocator, "{s}/usr/include/c++/v1", .{sysroot}) catch unreachable;
+        miniaudio_translate.addSystemIncludePath(.{ .cwd_relative = inc1 });
+        miniaudio_translate.addSystemIncludePath(.{ .cwd_relative = inc2 });
+        yoga_translate.addSystemIncludePath(.{ .cwd_relative = inc1 });
+        yoga_translate.addSystemIncludePath(.{ .cwd_relative = inc2 });
+        yoga_translate.addSystemIncludePath(.{ .cwd_relative = inc_cxx });
+        module.addSystemIncludePath(.{ .cwd_relative = inc1 });
+        module.addSystemIncludePath(.{ .cwd_relative = inc2 });
+        module.addSystemIncludePath(.{ .cwd_relative = inc_cxx });
+    }'''
+if old_translate in bz:
+    bz = bz.replace(old_translate, new_translate, 1)
+    print(">>> build.zig: added Android NDK system include paths for translate-c and module")
+
 old_target = 'addYogaDependencies(b, module);'
 new_target = '''addYogaDependencies(b, module);
 
