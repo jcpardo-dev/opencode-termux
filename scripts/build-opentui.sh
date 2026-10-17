@@ -260,6 +260,12 @@ new_translate = '''module.addImport("yoga", yoga_translate.createModule());
         const inc1 = std.fmt.allocPrint(b.allocator, "{s}/usr/include", .{sysroot}) catch unreachable;
         const inc2 = std.fmt.allocPrint(b.allocator, "{s}/usr/include/aarch64-linux-android", .{sysroot}) catch unreachable;
         const inc_cxx = std.fmt.allocPrint(b.allocator, "{s}/usr/include/c++/v1", .{sysroot}) catch unreachable;
+        miniaudio_translate.defineCMacro("_Nullable", "");
+        miniaudio_translate.defineCMacro("_Nonnull", "");
+        miniaudio_translate.defineCMacro("_Null_unspecified", "");
+        yoga_translate.defineCMacro("_Nullable", "");
+        yoga_translate.defineCMacro("_Nonnull", "");
+        yoga_translate.defineCMacro("_Null_unspecified", "");
         miniaudio_translate.addSystemIncludePath(.{ .cwd_relative = inc1 });
         miniaudio_translate.addSystemIncludePath(.{ .cwd_relative = inc2 });
         yoga_translate.addSystemIncludePath(.{ .cwd_relative = inc1 });
@@ -317,6 +323,15 @@ cd "$OPENTUI_ZIG_DIR"
 # points at the NDK sysroot, then pass it via --libc. See ziglang/zig#23906.
 NDK_HOME="${ANDROID_NDK_HOME:-/opt/android-ndk}"
 NDK_SYSROOT="$NDK_HOME/toolchains/llvm/prebuilt/linux-x86_64/sysroot"
+
+# Fix NDK r28 Clang nullability on array dimensions bug (e.g. sys/time.h utimes [_Nullable 2])
+if [ -d "$NDK_SYSROOT/usr/include" ]; then
+    echo ">>> Sanitizing NDK array nullability specifiers..."
+    grep -rl '_Nullable [0-9]' "$NDK_SYSROOT/usr/include" 2>/dev/null | while read -r f; do
+        sed -i 's/_Nullable \([0-9]\)/\1/g' "$f" 2>/dev/null || true
+    done
+fi
+
 API_LEVEL="${ANDROID_API:-29}"
 if [ ! -d "$NDK_SYSROOT/usr/lib/aarch64-linux-android/$API_LEVEL" ]; then
   AVAIL=$(ls "$NDK_SYSROOT/usr/lib/aarch64-linux-android/" 2>/dev/null | grep -E '^[0-9]+$' | sort -n | tail -1)
